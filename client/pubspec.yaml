@@ -1,0 +1,27 @@
+name: ee2e
+description: EE2E — Uçtan uca şifreli mesajlaşma istemcisi (Faz 1 iskeleti)
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  socket_io_client: ^2.0.3+1
+  flutter_secure_storage: ^9.2.2
+  uuid: ^4.4.2
+  intl: ^0.19.0
+  cryptography: ^2.7.0
+  http: ^1.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
