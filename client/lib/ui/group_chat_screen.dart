@@ -8,26 +8,9 @@ import '../core/keys_api.dart';
 import '../crypto/group_session.dart';
 import '../crypto/identity.dart';
 import '../storage/secure_keys.dart';
+import '../core/chat_store.dart';
 import 'connection_indicator.dart';
 import 'message_bubble.dart';
-
-class _GroupMessage {
-  _GroupMessage({
-    required this.id,
-    required this.text,
-    required this.senderId,
-    required this.isMine,
-    required this.timestamp,
-    this.state = MessageState.delivered,
-  });
-
-  final String id;
-  final String text;
-  final String senderId;
-  final bool isMine;
-  final DateTime timestamp;
-  final MessageState state;
-}
 
 class GroupChatScreen extends StatefulWidget {
   final SocketClient client;
@@ -52,7 +35,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   final _scrollCtrl = ScrollController();
 
   ConnectionStatus _status = ConnectionStatus.connecting;
-  final List<_GroupMessage> _messages = [];
+  late final List<DecryptedMessage> _messages;
   final Set<String> _seenMsgIds = <String>{};
 
   late StreamSubscription _statusSub;
@@ -67,16 +50,20 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   bool _ready = false;
   bool _setupError = false;
   String _statusText = 'Grup oturumu başlatılıyor…';
+  late Future<void> _setupFuture;
 
   @override
   void initState() {
     super.initState();
     _status = widget.client.status;
     _api = KeysApi(baseUrl: widget.client.serverUrl);
-    _groupSession = GroupSession(
-      groupId: widget.groupId,
-      myPeerId: widget.client.clientId,
+    _groupSession = ChatStore().groupSessionManager.getOrCreate(
+      widget.groupId,
+      widget.client.clientId,
     );
+
+    _messages = ChatStore().getMessages(widget.groupId);
+    ChatStore().setActive(widget.groupId, true);
 
     _statusSub = widget.client.status$.listen((s) {
       if (mounted) setState(() => _status = s);
@@ -84,9 +71,13 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     _msgSub = widget.client.messages$.listen(_onIncoming);
     _ackSub = widget.client.acks$.listen((_) {});
 
-    _setupGroup().then((_) {
+    _setupFuture = _setupGroup();
+    _setupFuture.then((_) async {
       if (widget.initialMessage != null && mounted) {
-        _onIncoming(widget.initialMessage!);
+        await _onIncoming(widget.initialMessage!);
+      }
+      for (final unread in ChatStore().takeUnread(widget.groupId)) {
+        await _onIncoming(unread);
       }
     });
   }
@@ -134,6 +125,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
   }
 
   Future<void> _onIncoming(IncomingMessage incoming) async {
+    await _setupFuture;
     if (!_seenMsgIds.add(incoming.msgId)) return;
 
     final envelope = incoming.envelope;
@@ -146,25 +138,6 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
       final dist = Map<String, dynamic>.from(envelope['distribution']);
       _groupSession.processDistributionMessage(incoming.senderId, dist);
-
-      // Karşılık olarak kendi Sender Key'imizi gönderelim (eğer henüz göndermediysek)
-      try {
-        final distPayload = _groupSession.cipher.generateMySenderKey().then((state) {
-          return {
-            'type': 'sender_key_distribution',
-            'group_id': widget.groupId,
-            'distribution': state.toDistributionJson(),
-            'members': widget.memberHandles,
-          };
-        });
-
-        distPayload.then((payload) {
-          widget.client.sendMessage(
-            recipientId: incoming.senderId,
-            envelope: payload,
-          );
-        });
-      } catch (_) {}
       return;
     }
 
@@ -176,7 +149,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       if (!mounted) return;
 
       setState(() {
-        _messages.add(_GroupMessage(
+        _messages.add(DecryptedMessage(
           id: incoming.msgId,
           text: result.text,
           senderId: result.senderId,
@@ -188,7 +161,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _messages.add(_GroupMessage(
+        _messages.add(DecryptedMessage(
           id: incoming.msgId,
           text: '<Şifre çözme hatası: $e>',
           senderId: incoming.senderId,
@@ -211,7 +184,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
     final tempId = 'local-${DateTime.now().microsecondsSinceEpoch}';
     setState(() {
-      _messages.add(_GroupMessage(
+      _messages.add(DecryptedMessage(
         id: tempId,
         text: text,
         senderId: widget.client.clientId,
@@ -240,7 +213,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       final i = _messages.indexWhere((m) => m.id == tempId);
       if (i != -1 && mounted) {
         setState(() {
-          _messages[i] = _GroupMessage(
+          _messages[i] = DecryptedMessage(
             id: tempId,
             text: _messages[i].text,
             senderId: _messages[i].senderId,
@@ -254,7 +227,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
       final i = _messages.indexWhere((m) => m.id == tempId);
       if (i != -1 && mounted) {
         setState(() {
-          _messages[i] = _GroupMessage(
+          _messages[i] = DecryptedMessage(
             id: tempId,
             text: _messages[i].text,
             senderId: _messages[i].senderId,
@@ -286,6 +259,7 @@ class _GroupChatScreenState extends State<GroupChatScreen> {
 
   @override
   void dispose() {
+    ChatStore().setActive(widget.groupId, false);
     _statusSub.cancel();
     _msgSub.cancel();
     _ackSub.cancel();

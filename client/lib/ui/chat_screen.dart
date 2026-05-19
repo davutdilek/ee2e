@@ -9,44 +9,27 @@ import '../crypto/session.dart';
 import '../crypto/identity.dart';
 import '../crypto/x3dh_header.dart';
 import '../storage/secure_keys.dart';
+import '../core/chat_store.dart';
 import 'connection_indicator.dart';
 import 'message_bubble.dart';
 import 'group_chat_screen.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.client});
+  const ChatScreen({super.key, required this.client, required this.peerId});
 
   final SocketClient client;
+  final String peerId;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatMessage {
-  _ChatMessage({
-    required this.id,
-    required this.text,
-    required this.isMine,
-    required this.peerId,
-    required this.timestamp,
-    this.state = MessageState.sending,
-  });
-
-  final String id;
-  final String text;
-  final bool isMine;
-  final String peerId;
-  final DateTime timestamp;
-  MessageState state;
-}
-
 class _ChatScreenState extends State<ChatScreen> {
-  final _peerCtrl = TextEditingController();
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
   ConnectionStatus _status = ConnectionStatus.connecting;
-  final List<_ChatMessage> _messages = [];
+  late final List<DecryptedMessage> _messages;
   final Set<String> _seenIncoming = <String>{};
   final Set<String> _seenAcks = <String>{};
 
@@ -60,18 +43,32 @@ class _ChatScreenState extends State<ChatScreen> {
   late StreamSubscription _statusSub;
   late StreamSubscription _msgSub;
   late StreamSubscription _ackSub;
+  late Future<void> _keysFuture;
 
   @override
   void initState() {
     super.initState();
     _status = widget.client.status;
     _api = KeysApi(baseUrl: widget.client.serverUrl);
-    _bootstrapKeys();
+    _keysFuture = _bootstrapKeys();
+    
+    _messages = ChatStore().getMessages(widget.peerId);
+    ChatStore().setActive(widget.peerId, true);
+
     _statusSub = widget.client.status$.listen((s) {
       if (mounted) setState(() => _status = s);
     });
     _msgSub = widget.client.messages$.listen(_onIncoming);
     _ackSub = widget.client.acks$.listen(_onAck);
+
+    _processUnread();
+  }
+
+  Future<void> _processUnread() async {
+    await _keysFuture;
+    for (final unread in ChatStore().takeUnread(widget.peerId)) {
+      await _onIncoming(unread);
+    }
   }
 
   Future<void> _bootstrapKeys() async {
@@ -80,6 +77,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _onIncoming(IncomingMessage incoming) async {
+    await _keysFuture;
     if (incoming.msgId.isNotEmpty && !_seenIncoming.add(incoming.msgId)) {
       return;
     }
@@ -152,11 +150,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     setState(() {
-      _messages.add(_ChatMessage(
+      _messages.add(DecryptedMessage(
         id: incoming.msgId,
         text: text,
         isMine: false,
-        peerId: incoming.senderId,
+        senderId: incoming.senderId,
         timestamp: DateTime.now(),
         state: MessageState.delivered,
       ));
@@ -174,11 +172,11 @@ class _ChatScreenState extends State<ChatScreen> {
       idx = _messages.indexWhere((m) => m.id == ack.clientMsgId);
       if (idx != -1) {
         setState(() {
-          _messages[idx] = _ChatMessage(
+          _messages[idx] = DecryptedMessage(
             id: ack.msgId,
             text: _messages[idx].text,
             isMine: _messages[idx].isMine,
-            peerId: _messages[idx].peerId,
+            senderId: _messages[idx].senderId,
             timestamp: _messages[idx].timestamp,
             state: MessageState.sent,
           );
@@ -198,9 +196,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _send() async {
-    final peer = _peerCtrl.text.trim();
+    final peer = widget.peerId;
     final text = _inputCtrl.text.trim();
-    if (peer.isEmpty || text.isEmpty || _status != ConnectionStatus.online) return;
+    if (text.isEmpty || _status != ConnectionStatus.online) return;
 
     if (_myIdentity == null) {
       if (mounted) {
@@ -213,11 +211,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final tempId = 'local-${DateTime.now().microsecondsSinceEpoch}';
     setState(() {
-      _messages.add(_ChatMessage(
+      _messages.add(DecryptedMessage(
         id: tempId,
         text: text,
         isMine: true,
-        peerId: peer,
+        senderId: peer,
         timestamp: DateTime.now(),
       ));
     });
@@ -272,12 +270,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    ChatStore().setActive(widget.peerId, false);
     _statusSub.cancel();
     _msgSub.cancel();
     _ackSub.cancel();
-    widget.client.dispose();
     _api.close();
-    _peerCtrl.dispose();
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -291,7 +288,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Ben: ${widget.client.clientId}',
+            Text('Sohbet: ${widget.peerId}',
                 style: const TextStyle(fontSize: 14)),
             ConnectionIndicator(status: _status),
           ],
@@ -299,17 +296,6 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: TextField(
-              controller: _peerCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Karşı tarafın Client ID',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ),
           Expanded(
             child: ListView.builder(
               controller: _scrollCtrl,
