@@ -14,7 +14,7 @@ Her sütunun **Faz başına nasıl uygulandığı** burada izlenir.
 | 2   | Sunucu sadece **public** key bundle saklar; upload sırasında private key alanı reddedilir |
 | 3   | Tüm `message:send` payload'ı şifreli; sunucuda ciphertext bile **decrypt edilemez** (anahtar yok) |
 | 4   | Sealed Sender → gönderici kimliği bile şifreli                            |
-| 5   | MLS commit/welcome mesajları opaque — sunucu sadece transport             |
+| 5   | Sender Keys (Grup) mesajları opaque — sunucu sadece transport (fanout) yapar |
 
 **Doğrulama testi:** `make test-zero-knowledge` — sunucu container'ında `grep -r "<plaintext_kanaryacı>" /var/log` boş dönmeli.
 
@@ -28,9 +28,8 @@ Her sütunun **Faz başına nasıl uygulandığı** burada izlenir.
 |-----|---------------------------------------------------------------------------|
 | 1   | In-memory dict + TTL (max 7 gün, default 24 saat); `delivered` ack ile anında sil |
 | 2   | Aynı (key bundle'lar persistent ama **mesajlar değil**)                   |
-| 3   | Redis'e geçiş (TTL native), `MAXMEMORY` policy = `allkeys-lru`            |
-| 4   | Encrypted swap disabled, `tmpfs` mount for queue                          |
-| 5   | MLS — sunucu sadece "fanout buffer", commit sonrası temizlenir            |
+| 3-4 | In-memory dict ile devam; şifreli payload'lar RAM'de tutulup ack alınca silinir |
+| 5   | Grup (Sender Keys) mesajları — sunucu sadece "fanout buffer" olarak RAM kullanır |
 
 **Doğrulama:** Mesaj iletildikten sonra `SELECT * FROM messages` (yoksa Redis `KEYS msg:*`) → boş.
 
@@ -45,8 +44,8 @@ Her sütunun **Faz başına nasıl uygulandığı** burada izlenir.
 | 1   | YOK (henüz şifreleme yok)                                                 |
 | 2   | X3DH ile per-session SK; OPK her kullanımda silinir                       |
 | 3   | Double Ratchet — her mesajda yeni message key türetilir, eskiler silinir  |
-| 4   | Sender Keys rotation (her join/leave'de chain key reset)                  |
-| 5   | MLS — TreeKEM commit'leri otomatik epoch advance + key derivation         |
+| 4   | Sealed Sender eklentileri ile metadata gizliliği                          |
+| 5   | Sender Keys (Grup Şifreleme) — her gönderici için ayrı ratchet zinciri    |
 
 **Doğrulama:** Geçmiş ciphertext + bugünkü tüm key'ler verilse bile, eski mesaj **çözülememeli**.
 

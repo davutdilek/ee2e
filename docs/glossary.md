@@ -8,9 +8,9 @@
 | **OPK** | One-Time PreKey — Tek kullanımlık X25519 anahtarı. Kullanılır kullanılmaz silinir. |
 | **X3DH** | Extended Triple Diffie-Hellman — İlk shared secret türetme protokolü (Signal). |
 | **Double Ratchet** | Her mesajda yeni anahtar türeten, forward & backward secrecy sağlayan algoritma. |
-| **Sender Keys** | WhatsApp grup şifreleme modeli — her gönderici grup için ayrı symmetric chain. |
-| **MLS** | Messaging Layer Security (RFC 9420) — Ölçeklenebilir grup E2EE standardı (TreeKEM tabanlı). |
-| **TreeKEM** | MLS'in altında yatan ağaç-yapılı anahtar paylaşım protokolü. |
+| **Sender Keys** | WhatsApp grup şifreleme modeli — her gönderici grup için ayrı symmetric chain. (Projemizde bu model uygulandı) |
+| **MLS** | Messaging Layer Security (RFC 9420) — Ölçeklenebilir grup E2EE standardı (TreeKEM tabanlı). (Projede uygulanmadı) |
+| **TreeKEM** | MLS'in altında yatan ağaç-yapılı anahtar paylaşım protokolü. (Projede uygulanmadı) |
 | **AEAD** | Authenticated Encryption with Associated Data — Hem şifreleme hem bütünlük (örn. AES-GCM, ChaCha20-Poly1305). |
 | **Forward Secrecy** | Bugünkü anahtar çalınsa bile dünkü mesajların açılamaması. |
 | **Post-Compromise Security** | Tam tersi — bugünkü anahtar çalındıktan sonra yeni mesajların güvende olması (Ratchet sağlar). |
